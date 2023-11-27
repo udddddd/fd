@@ -100,27 +100,42 @@ inline int ckstat(const char *path) {
 }
 
 inline int matches(const char *fname) {
-	return ckstat(fname)
-	&& regexec(&reg, fname, 0, NULL, 0) == 0;
+	return ckstat(fname) && regexec(&reg, fname, 0, NULL, 0) == 0;
+}
+
+inline int shouldskip(const char *name) {
+	return (name[0] == '.' && (opts.ignorehidden || name[1] == '\0'
+	|| name[1] == '.' && name[2] == '\0'));
 }
 
 int searchdir(void) {
 	DIR *dir = opendir(".");
 	struct dirent *ent;
+	struct stat st;
 
 	if(!dir) return -1;
 	while((ent = readdir(dir))) {
-		if(ent->d_name[0] == '.'
-		&& (opts.ignorehidden || ent->d_name[1] == '\0'
-		|| ent->d_name[1] == '.' && ent->d_name[2] == '\0'))
+		if(shouldskip(ent->d_name))
 			continue;
 		if(matches(ent->d_name))
 			printf("%s%s\n", path, ent->d_name);
-		if(depth && ent->d_type == DT_DIR) {
+		if(depth) {
+			if(ent->d_type != DT_DIR) {
+				if(ent->d_type != DT_UNKNOWN)
+					continue;
+				if(lstat(ent->d_name, &st)) {
+					perror(ent->d_name);
+					continue;
+				}
+				if(!S_ISDIR(st.st_mode))
+					continue;
+			}
 			--depth;
 			pushd(ent->d_name);
 			if(chdir(ent->d_name) == 0)
 				searchdir();
+			else
+				perror(ent->d_name);
 			chdir("..");
 			popd();
 			++depth;
